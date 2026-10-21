@@ -1,8 +1,10 @@
 (() => {
   'use strict';
   const E=PlanEngine,D=PLAN_DATA,$=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let settings={...E.defaults};
-  try{const saved=JSON.parse(localStorage.getItem('plan-tymona-settings-v1'));if(saved&&[1,2,3,4,5,6].includes(Number(saved.dean))&&[1,2,3,4,5].includes(Number(saved.latin)))settings={...settings,...saved};}catch{}
+  let storage;try{storage=localStorage;}catch{}
+  const preferences=PlanPreferences.load(storage);
+  let settings=preferences.profiles[preferences.selectedLab];
+  function persist(){preferences.selectedLab=settings.lab;preferences.profiles[settings.lab]=settings;return PlanPreferences.save(storage,preferences);}
   let now=E.nowParts(),week=E.monday(now.day),selectedDay=now.day,selectedKey=null,events=[],liveState,map,markers=[],line,focusKey=null;
   const dayNames=['Niedziela','Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota'];
   const shortNames=['Niedz.','Pon.','Wt.','Śr.','Czw.','Pt.','Sob.'];
@@ -37,8 +39,11 @@
     now=E.nowParts();renderLive();events=E.weekEvents(week,settings);
     const weekEnd=E.addDays(week,6);$('#date').value=selectedDay;
     $('#week-title').textContent=`${fmt(week,{day:'numeric',month:'short'})} – ${fmt(weekEnd,{day:'numeric',month:'short',year:'numeric'})}`;
-    $('#group-summary').textContent=`D${settings.dean} · Ł${settings.latin}`;
+    $('#lab-group').value=settings.lab;$('#lab-summary').textContent=`Grupa ćwiczeniowa ${settings.lab}`;
+    $('#group-summary').textContent=`D${settings.dean||' —'} · Ł${settings.latin||' —'}`;
+    $('#profile-groups').textContent=`D${settings.dean||' —'} · Ł${settings.latin||' —'}`;
     const warnings=[];
+    if(!settings.dean||!settings.latin)warnings.push(`Grupa ćw. ${settings.lab}: ${!settings.dean?'wybierz grupę D, aby dodać matematykę i IT. ':''}${!settings.latin?'Wybierz grupę Ł, aby dodać łacinę. ':''}Przydziały uzupełnisz w „Grupy i lektorat”.`);
     if(weekEnd<D.meta.from||week>D.meta.to)warnings.push('Ten tydzień jest poza zakresem planu. Dostępny semestr: 01.10.2026–31.01.2027.');
     if(week<='2026-10-05'&&weekEnd>='2026-10-05')warnings.push('5.10: PDF wymienia inaugurację wydziałową; godzina wymaga sprawdzenia w ogłoszeniu.');
     if(week<='2026-12-16'&&weekEnd>='2026-12-16')warnings.push('Do wyjaśnienia: PDF podaje 16.12 w piątkowym bloku chemii organicznej. 16.12 to środa. Nie dodano pewnego wykładu 16 ani 18.12.');
@@ -129,7 +134,8 @@
     }
   }
   function showSettings(){
-    const form=$('#settings-form'),f=form.elements;f.dean.value=settings.dean;f.latin.value=settings.latin;f.confirmed.checked=!!settings.language;
+    const form=$('#settings-form'),f=form.elements;f.dean.value=settings.dean||'';f.latin.value=settings.latin||'';f.confirmed.checked=!!settings.language;
+    $('#settings-lab').textContent=settings.lab;
     $('#language-fields').disabled=!settings.language;
     const lang=settings.language;
     f.languageName.value=lang?.name||'';f.languageDay.value=lang?.day||4;f.start.value=lang?.start||'08:00';f.end.value=lang?.end||'09:30';f.room.value=lang?.room||'';f.from.value=lang?.from||D.meta.from;f.to.value=lang?.to||D.meta.to;
@@ -139,15 +145,20 @@
   $('#settings-form').onsubmit=event=>{
     event.preventDefault();const f=event.target.elements;
     if(f.confirmed.checked&&(f.start.value>=f.end.value||f.from.value>f.to.value)){$('#settings-error').textContent='Koniec musi być późniejszy od początku, a zakres dat musi być poprawny.';return;}
-    settings={dean:Number(f.dean.value),latin:Number(f.latin.value),language:f.confirmed.checked?{name:f.languageName.value.trim(),day:Number(f.languageDay.value),start:f.start.value,end:f.end.value,room:f.room.value.trim(),from:f.from.value,to:f.to.value}:null};
-    try{localStorage.setItem('plan-tymona-settings-v1',JSON.stringify(settings));}catch{$('#settings-error').textContent='Nie można zapisać ustawień na dysku. Zmiany działają tylko do zamknięcia aplikacji.';render();return;}
+    settings={lab:settings.lab,dean:Number(f.dean.value)||null,latin:Number(f.latin.value)||null,language:f.confirmed.checked?{name:f.languageName.value.trim(),day:Number(f.languageDay.value),start:f.start.value,end:f.end.value,room:f.room.value.trim(),from:f.from.value,to:f.to.value}:null};
+    if(!persist()){$('#settings-error').textContent='Nie można zapisać ustawień na dysku. Zmiany działają tylko do zamknięcia aplikacji.';render();return;}
     $('#settings-dialog').close();render();
   };
   $('#prev-week').onclick=()=>setWeek(E.addDays(selectedDay,-7));$('#next-week').onclick=()=>setWeek(E.addDays(selectedDay,7));
   $('#today').onclick=()=>setWeek(E.nowParts().day);$('#nav-plan').onclick=()=>$('#calendar-scroll').scrollIntoView({block:'nearest',behavior:'smooth'});
   $('#date').onchange=e=>{if(/^\d{4}-\d{2}-\d{2}$/.test(e.target.value))setWeek(e.target.value);};
   $('#go-live').onclick=jumpLive;$('#nav-next').onclick=jumpLive;
-  $('#nav-settings').onclick=showSettings;$('#edit-groups').onclick=showSettings;
+  $('#nav-settings').onclick=showSettings;$('#edit-groups').onclick=showSettings;$('#profile-settings').onclick=showSettings;
+  $('#lab-group').onchange=event=>{
+    const lab=Number(event.target.value);if(!D.groups.lab.includes(lab))return;
+    preferences.profiles[settings.lab]=settings;settings=preferences.profiles[lab]||PlanPreferences.forLab(lab);
+    selectedKey=null;focusKey=null;persist();render();
+  };
   $('#nav-sources').onclick=()=>openDialog('#sources-dialog');$('#anomaly-info').onclick=()=>openDialog('#sources-dialog');
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
   $('#prev-event').onclick=()=>{const list=dayEvents(),i=list.findIndex(e=>e.key===selectedKey);if(i>0)pick(list[i-1],true);};

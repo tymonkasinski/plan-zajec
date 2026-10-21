@@ -1,6 +1,11 @@
 (function(root){
   const D=typeof module!=='undefined'?require('./data.js'):root.PLAN_DATA;
-  const defaults={dean:3,latin:3,language:null};
+  const defaults={lab:3,dean:3,latin:3,language:null};
+  function normalizeSettings(input=defaults){
+    const lab=D.groups.lab.includes(Number(input.lab))?Number(input.lab):3;
+    const chosen=(key)=>Object.prototype.hasOwnProperty.call(input,key)?(D.groups[key].includes(Number(input[key]))?Number(input[key]):null):(lab===3?3:null);
+    return {lab,dean:chosen('dean'),latin:chosen('latin'),language:input.language||null};
+  }
   const minutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3,5));
   function addDays(day,n){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
   const weekday=day=>new Date(day+'T12:00:00Z').getUTCDay();
@@ -17,13 +22,13 @@
     return {closed:false,day:D.substitutions[day]||weekday(day),substitution:D.substitutions[day]};
   }
   function applies(r,day,info,settings){
-    if(r.day!==info.day || r.dean&&r.dean!==Number(settings.dean) || r.latin&&r.latin!==Number(settings.latin))return false;
+    if(r.day!==info.day || r.lab&&r.lab!==settings.lab || r.dean&&r.dean!==settings.dean || r.latin&&r.latin!==settings.latin)return false;
     if(r.dates)return r.dates.includes(day);
     if(r.ranges)return r.ranges.some(([from,to])=>day>=from&&day<=to);
     return day>=(r.from||D.meta.from)&&day<=(r.to||D.meta.to);
   }
   function eventsOn(day,settings=defaults){
-    settings={...defaults,...settings};const info=dayInfo(day);if(info.closed)return [];
+    settings=normalizeSettings(settings);const info=dayInfo(day);if(info.closed)return [];
     const rules=D.rules.filter(r=>applies(r,day,info,settings));
     const lang=settings.language;
     if(info.day===(lang?Number(lang.day):4))rules.push(lang?{
@@ -45,6 +50,6 @@
     return 'Zaplanowane';
   }
   function conflicts(events){return events.filter((a,i)=>!a.uncertain&&events.some((b,j)=>j!==i&&!b.uncertain&&a.date===b.date&&minutes(a.start)<minutes(b.end)&&minutes(b.start)<minutes(a.end)));}
-  const api={defaults,minutes,addDays,weekday,monday,nowParts,dayInfo,eventsOn,eventsBetween,weekEvents,live,status,conflicts};
+  const api={defaults,normalizeSettings,minutes,addDays,weekday,monday,nowParts,dayInfo,eventsOn,eventsBetween,weekEvents,live,status,conflicts};
   if(typeof module!=='undefined')module.exports=api;root.PlanEngine=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
